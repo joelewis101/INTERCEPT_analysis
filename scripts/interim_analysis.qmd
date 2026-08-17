@@ -1,0 +1,117 @@
+---
+title: INTERCEPT interim analysis
+date: today
+date-format: "D MMMM YYYY"
+format:
+  pdf:
+    mathspec: true
+    toc: true
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+
+library(tidyverse)
+library(here)
+library(patchwork)
+
+df <-
+read_csv(here("data/processed/cleaned_inpatient_cultures.csv"))
+
+
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 10
+
+
+c <-
+df |>
+  select(hospital, ward, pid, day) |>
+  unique() |>
+  ggplot(aes(day)) +
+  geom_bar() +
+  facet_grid(hospital ~ ward) +
+  labs(title = "Number of samples")
+  
+a <-
+df |>
+  select(hospital, ward, pid, day, plate, growth) |>
+  group_by(hospital, ward, day, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+filter(plate == "esbl") |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 1)) +
+  geom_line( position = position_dodge(width = 1)) +
+  #geom_errorbar(width = 0, position = position_dodge(width = 1)) + 
+  geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  facet_grid(hospital ~ ward) +
+  scale_fill_manual(values = "red") +
+  scale_color_manual(values = "red") +
+  labs(title = "Proportion of inpatients colonised: ESBL")
+
+       
+b <-
+df |>
+  select(hospital, ward, pid, day, plate, growth) |>
+  group_by(hospital, ward, day, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+filter(plate == "cro") |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 1)) +
+  geom_line( position = position_dodge(width = 1)) +
+  #geom_errorbar(width = 0, position = position_dodge(width = 1)) + 
+  geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  facet_grid(hospital ~ ward) +
+  scale_fill_manual(values = "blue") +
+  scale_color_manual(values = "blue") +
+  labs(title = "Proportion of inpatients colonised: CRO")
+
+c / a / b + plot_annotation(tag_levels = "A")
+
+
+
+```
+
+```{r}
+#| fig-width: 5
+#| fig-height: 3
+
+df |>
+  separate_longer_delim(species, delim = ";") |>
+  filter(!is.na(species), !grepl("SAMPLE|ABSENT", species)) |>
+  mutate(species = gsub(",", "", species)) |>
+  mutate(species = if_else(grepl("Coli|coli", species), "E. coli", species)) |>
+  ggplot(aes(fct_infreq(species))) +
+  geom_bar() +
+  facet_wrap(~ plate, scales = "free_x") +
+  coord_flip() +
+  labs(x = "Species", title = "Number of isolates")
+  
+
+```
