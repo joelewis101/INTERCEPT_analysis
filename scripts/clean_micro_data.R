@@ -20,13 +20,14 @@ library(tidyxl)
 # remove spaces and add underscore between
 #
 # the function extract_bordered_tables will do all of this
+# It will mung the headers based on whether or not "Subject ID" is in the table
 #
 #
 # There are then sample type specific cleaning functions
+# The number of header rows must be added manually
 
 extract_bordered_tables <- function(file_path, sheet_name = 1, n_header_rows = 2) {
- 
-# 1. Read all cells and all formats
+  # 1. Read all cells and all formats
   all_cells <- xlsx_cells(file_path, sheets = sheet_name)
   all_formats <- xlsx_formats(file_path)
 
@@ -126,7 +127,7 @@ extract_bordered_tables <- function(file_path, sheet_name = 1, n_header_rows = 2
 
   # and 6 Reshape each isolated table cluster back into a rectangular tibble
   tables_list <- clustered_cells %>%
-  group_split(table_id) %>%
+    group_split(table_id) %>%
     map(function(sub_table) {
       # Coalesce values into a single text/value column
       sub_table <- sub_table %>%
@@ -148,7 +149,9 @@ extract_bordered_tables <- function(file_path, sheet_name = 1, n_header_rows = 2
         arrange(row) %>%
         select(-row)
 
-      # Use the first row as column names and drop it from the data rows
+      # Use the first row as column names and drop it from the data rows if
+      # there are no duplications
+      # If there are duplications, just use numbers but add an x
       if (any(duplicated(as.character(wide_matrix[1, ])))) {
         colnames(wide_matrix) <- paste0("x", colnames(wide_matrix))
         final_tibble <- wide_matrix
@@ -168,23 +171,24 @@ extract_bordered_tables <- function(file_path, sheet_name = 1, n_header_rows = 2
 file_path <- here("data/raw/Sample Result (Spreadsheet-Excel)/Spreadsheet Sampel INPATIENT.xlsx")
 
 make_inpatient_data_tidy <- function(table_list) {
+  table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
 
-table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
-
-map(table_list, \(x) fill(x, c(no, subjectid))) |>
-  bind_rows() |> 
-  pivot_longer(-c(no, subjectid),
-  names_to = c("day", "plate"),
-  names_pattern = "swab(.*)_(.*)") |>
-  filter(!is.na(value), value != "-", value != "G") |>
-  group_by(no,subjectid, day, plate) |>
-  mutate(growth = if_else(all(value == "NG"), FALSE, TRUE),
-         species  = paste(value, collapse = ";")) |>
-  mutate(species = if_else(species == "NG", NA, species)) |> 
-  select(-value) |>
-  unique() |>
-  as.data.frame()
-
+  map(table_list, \(x) fill(x, c(no, subjectid))) |>
+    bind_rows() |>
+    pivot_longer(-c(no, subjectid),
+      names_to = c("day", "plate"),
+      names_pattern = "swab(.*)_(.*)"
+    ) |>
+    filter(!is.na(value), value != "-", value != "G") |>
+    group_by(no, subjectid, day, plate) |>
+    mutate(
+      growth = if_else(all(value == "NG"), FALSE, TRUE),
+      species = paste(value, collapse = ";")
+    ) |>
+    mutate(species = if_else(species == "NG", NA, species)) |>
+    select(-value) |>
+    unique() |>
+    as.data.frame()
 }
 
 
@@ -200,7 +204,7 @@ df <-
     make_inpatient_data_tidy(
       extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 2)
     )
-  ) 
+  )
 
 
 
@@ -216,10 +220,10 @@ df <-
       ),
     sample_type = case_when(
       sample_type == 1 ~ "ward",
-      sample_type  == 2 ~ "ICU",
+      sample_type == 2 ~ "ICU",
       sample_type == 3 ~ "community",
-      sample_type  == 5 ~ "staff",
-      sample_type  == 4 ~ "environment"
+      sample_type == 5 ~ "staff",
+      sample_type == 4 ~ "environment"
     )
   )
 
@@ -231,39 +235,41 @@ write_csv(df, here("data/processed/cleaned_inpatient_cultures.csv"))
 
 file_path <- here("data/raw/Sample Result (Spreadsheet-Excel)/Spreadsheet Sampel HEALTHWORKERS.xlsx")
 
-#extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 3) -> table_list
+# extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 3) -> table_list
 
 make_staff_data_tidy <- function(table_list) {
+  table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
 
-table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
-
-map(table_list, \(x) fill(x, c(no, subjectid))) |>
-  bind_rows() |> 
-  pivot_longer(-c(no, subjectid),
-  names_to = c("day", "sample", "plate"),
-  names_sep = "_") |>
-  filter(!is.na(value), value != "-", value != "G") |>
-  group_by(no,subjectid, day, sample, plate) |>
-  mutate(growth = if_else(all(value == "NG"), FALSE, TRUE),
-         species  = paste(value, collapse = ";")) |>
-  mutate(species = if_else(species == "NG", NA, species)) |> 
-  select(-value) |>
-  unique() |>
-  as.data.frame()
-
+  map(table_list, \(x) fill(x, c(no, subjectid))) |>
+    bind_rows() |>
+    pivot_longer(-c(no, subjectid),
+      names_to = c("day", "sample", "plate"),
+      names_sep = "_"
+    ) |>
+    filter(!is.na(value), value != "-", value != "G") |>
+    group_by(no, subjectid, day, sample, plate) |>
+    mutate(
+      growth = if_else(all(value == "NG"), FALSE, TRUE),
+      species = paste(value, collapse = ";")
+    ) |>
+    mutate(species = if_else(species == "NG", NA, species)) |>
+    select(-value) |>
+    unique() |>
+    as.data.frame()
 }
 
 
-df <- bind_rows( make_staff_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 3)
-    ),
-    make_staff_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 3)
-    ),
-    make_staff_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 3)
-    )
-  ) 
+df <- bind_rows(
+  make_staff_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 3)
+  ),
+  make_staff_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 3)
+  ),
+  make_staff_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 3)
+  )
+)
 
 
 df <-
@@ -278,9 +284,8 @@ df <-
       ),
     sample_type = case_when(
       sample_type == 1 ~ "ward",
-      sample_type  == 2 ~ "ICU",
-      sample_type  == 5 ~ "staff"
-
+      sample_type == 2 ~ "ICU",
+      sample_type == 5 ~ "staff"
     )
   )
 
@@ -291,37 +296,38 @@ write_csv(df, here("data/processed/cleaned_staff_cultures.csv"))
 file_path <- here("data/raw/Sample Result (Spreadsheet-Excel)/Spreadsheet Sampel ENVIRONMENT.xlsx")
 
 make_env_data_tidy <- function(table_list) {
+  table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
 
-table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
-
-map(table_list, \(x) fill(x, c(no, subjectid))) |>
-  bind_rows() |> 
-  rename(cro = result_cro, esbl = result_esbl) |>
-  pivot_longer(-c(no, subjectid),
-  names_to = c("plate")) |>
-  filter(!is.na(value), value != "-", value != "G") |>
-  group_by(no,subjectid, plate) |>
-  mutate(growth = if_else(all(value == "NG"), FALSE, TRUE),
-         species  = paste(value, collapse = ";")) |>
-  mutate(species = if_else(species == "NG", NA, species)) |> 
-  select(-value) |>
-  unique() |>
-  as.data.frame()
-
+  map(table_list, \(x) fill(x, c(no, subjectid))) |>
+    bind_rows() |>
+    rename(cro = result_cro, esbl = result_esbl) |>
+    pivot_longer(-c(no, subjectid),
+      names_to = c("plate")
+    ) |>
+    filter(!is.na(value), value != "-", value != "G") |>
+    group_by(no, subjectid, plate) |>
+    mutate(
+      growth = if_else(all(value == "NG"), FALSE, TRUE),
+      species = paste(value, collapse = ";")
+    ) |>
+    mutate(species = if_else(species == "NG", NA, species)) |>
+    select(-value) |>
+    unique() |>
+    as.data.frame()
 }
 
 
-df <- bind_rows( 
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 2)
-    ),
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 2)
-    ),
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 2)
-    )
-  ) 
+df <- bind_rows(
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 2)
+  ),
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 2)
+  ),
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 2)
+  )
+)
 
 
 df <-
@@ -336,9 +342,9 @@ df <-
       ),
     sample_type = case_when(
       sample_type == 1 ~ "ward",
-      sample_type  == 2 ~ "ICU",
-      sample_type  == 5 ~ "staff",
-      sample_type  == 4 ~ "environment"
+      sample_type == 2 ~ "ICU",
+      sample_type == 5 ~ "staff",
+      sample_type == 4 ~ "environment"
     )
   )
 
@@ -351,17 +357,17 @@ file_path <- here("data/raw/Sample Result (Spreadsheet-Excel)/Spreadsheet Sampel
 
 # env tidy function also works here
 
-df <- bind_rows( 
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 2)
-    ),
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 2)
-    ),
-    make_env_data_tidy(
-      extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 2)
-    )
-  ) 
+df <- bind_rows(
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 1, n_header_rows = 2)
+  ),
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 2)
+  ),
+  make_env_data_tidy(
+    extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 2)
+  )
+)
 
 
 df <-
@@ -376,12 +382,11 @@ df <-
       ),
     sample_type = case_when(
       sample_type == 1 ~ "ward",
-      sample_type  == 2 ~ "ICU",
+      sample_type == 2 ~ "ICU",
       sample_type == 3 ~ "community",
-      sample_type  == 5 ~ "staff",
-      sample_type  == 4 ~ "environment"
+      sample_type == 5 ~ "staff",
+      sample_type == 4 ~ "environment"
     )
   )
 
 write_csv(df, here("data/processed/cleaned_community_cultures.csv"))
-
