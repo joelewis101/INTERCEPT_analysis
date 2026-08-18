@@ -235,7 +235,7 @@ write_csv(df, here("data/processed/cleaned_inpatient_cultures.csv"))
 
 file_path <- here("data/raw/Sample Result (Spreadsheet-Excel)/Spreadsheet Sampel HEALTHWORKERS.xlsx")
 
-# extract_bordered_tables(file_path, sheet_name = 2, n_header_rows = 3) -> table_list
+#extract_bordered_tables(file_path, sheet_name = 3, n_header_rows = 3) -> table_list
 
 make_staff_data_tidy <- function(table_list) {
   table_list <- table_list[map(table_list, function(x) "subjectid" %in% colnames(x)) |> unlist()]
@@ -247,6 +247,7 @@ make_staff_data_tidy <- function(table_list) {
       names_sep = "_"
     ) |>
     filter(!is.na(value), value != "-", value != "G") |>
+    filter(!grepl("refused", value)) |>
     group_by(no, subjectid, day, sample, plate) |>
     mutate(
       growth = if_else(all(value == "NG"), FALSE, TRUE),
