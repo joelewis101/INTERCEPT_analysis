@@ -1,0 +1,446 @@
+---
+title: INTERCEPT interim analysis
+author: "Joe Lewis"
+date: today
+date-format: "D MMMM YYYY"
+format: beamer
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Introduction
+
+Aims of this analysis:
+
+- Simple description of colonisation proportion by sample type stratified by
+hospital/ward (where appropriate)
+- Description of species stratified by sample type and resistance (CRO/ESBL)
+
+Caveats:
+
+- Based on chromagar only
+- Not yet linked to REDcap metadata
+
+```{r}
+
+library(tidyverse)
+library(here)
+library(patchwork)
+
+df <-
+read_csv(here("data/processed/cleaned_inpatient_cultures.csv"))
+
+
+```
+
+```{r}
+#| fig-width: 8
+#| fig-height: 10
+
+
+c <-
+df |>
+  select(hospital, sample_type, pid, day) |>
+  unique() |>
+  ggplot(aes(day)) +
+  geom_bar() +
+  facet_grid(hospital ~ sample_type) +
+  labs(title = "Number of samples")
+  
+a <-
+df |>
+  select(hospital, sample_type, pid, day, plate, growth) |>
+  group_by(hospital, sample_type, day, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+filter(plate == "esbl") |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 1)) +
+  geom_line( position = position_dodge(width = 1)) +
+  #geom_errorbar(width = 0, position = position_dodge(width = 1)) + 
+  geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  facet_grid(hospital ~ sample_type) +
+  scale_fill_manual(values = "red") +
+  scale_color_manual(values = "red") +
+  labs(title = "Proportion of inpatients colonised: ESBL")
+
+       
+b <-
+df |>
+  select(hospital, sample_type, pid, day, plate, growth) |>
+  group_by(hospital, sample_type, day, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+filter(plate == "cro") |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 1)) +
+  geom_line( position = position_dodge(width = 1)) +
+  #geom_errorbar(width = 0, position = position_dodge(width = 1)) + 
+  geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  facet_grid(hospital ~ sample_type) +
+  scale_fill_manual(values = "blue") +
+  scale_color_manual(values = "blue") +
+  labs(title = "Proportion of inpatients colonised: CRO")
+
+#c / a / b + plot_annotation(tag_levels = "A")
+
+
+
+```
+
+# Inpatients
+
+## Inpatients: Number of samples
+
+
+```{r}
+#| fig-width: 5
+#| fig-height: 4
+
+c
+
+```
+
+## Inpatients: Proprotion colonised
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+
+b + a
+
+```
+
+## Inpatients: species
+
+
+```{r}
+#| fig-width: 5
+#| fig-height: 3
+
+df |>
+  separate_longer_delim(species, delim = ";") |>
+  filter(!is.na(species), !grepl("SAMPLE|ABSENT", species)) |>
+  mutate(species = gsub(",", "", species)) |>
+  mutate(species = if_else(grepl("Coli|coli", species), "E. coli", species)) |>
+  ggplot(aes(fct_infreq(species))) +
+  geom_bar() +
+  facet_wrap(~ plate, scales = "free_x") +
+  coord_flip() +
+  labs(x = "Species", title = "Number of isolates")
+
+```
+
+## Inpatients: CRO species vs time
+
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+
+df |>
+  filter(plate == "cro") |>
+  group_by(hospital, sample_type, pid, day) |>
+  separate_longer_delim(species, delim = ";") |>
+  mutate(species = 
+    case_when(
+       grepl("Klebsiella", species) ~ "KEC",
+       grepl("Coli|coli", species) ~ "E. coli",
+       TRUE ~ species)) |>
+  group_by(hospital, day, sample_type, species) |>
+  count() |>
+  filter(!is.na(species), !grepl("ABSENT|SAMPLE", species)) |>
+  left_join(
+    df |>
+    select(hospital, sample_type, pid, day) |>
+    unique() |> 
+    group_by(hospital, sample_type, day) |> 
+    count(name = "N"), 
+    by = c("hospital", "sample_type", "day")
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+filter(species != "none") |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, color = species, fill = species)) + 
+  geom_point(position = position_dodge(width = 1)) +
+  geom_line( position = position_dodge(width = 1)) +
+  #geom_errorbar(width = 0, position = position_dodge(width = 1)) + 
+  geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  facet_grid(hospital ~ sample_type) 
+
+```
+
+# Environment
+
+
+## Environmental swab results
+
+
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+
+
+df <-
+read_csv(here("data/processed/cleaned_env_cultures.csv"))
+
+c <-
+df |>
+  select(hospital,  pid) |>
+  unique() |>
+  ggplot(aes(hospital)) +
+  geom_bar() +
+  labs(title = "Number of samples")
+  
+a <-
+df |>
+  select(hospital, pid, plate, growth) |>
+  group_by(hospital, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+  ggplot(
+    aes(hospital, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 0.6)) +
+ # geom_line( position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) + 
+ # geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  scale_fill_manual(values = rev(c("red", "blue"))) + 
+  scale_color_manual(values = rev((c("red", "blue")))) + 
+  labs(title = "Proportion of swabs positive")
+
+b <-
+df |>
+  separate_longer_delim(species, delim = ";") |>
+  filter(!is.na(species), !grepl("SAMPLE|ABSENT|REJ", species)) |>
+  mutate(species = gsub(",", "", species)) |>
+  mutate(species = if_else(grepl("Coli|coli", species), "E. coli", species)) |>
+  ggplot(aes(fct_infreq(species))) +
+  geom_bar() +
+  facet_wrap(~ plate, scales = "free_x") +
+  coord_flip() +
+  labs(x = "Species", title = "Number of isolates")
+
+c + a
+
+```
+
+## Environmental species
+
+```{r}
+#| fig-width: 5
+#| fig-height: 3
+
+b
+```
+
+# Staff
+
+
+## Staff swab results
+
+
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+
+
+df <-
+read_csv(here("data/processed/cleaned_staff_cultures.csv"))
+
+c <-
+df |>
+  select(hospital,  pid, sample, day) |>
+  unique() |>
+  ggplot(aes(hospital, fill = sample)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Number of samples") +
+  facet_wrap( ~ day) +
+  theme(legend.position = "bottom")
+  
+a <-
+df |>
+  select(hospital, pid, day, sample, plate, growth) |>
+  group_by(hospital, plate, day, sample) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+mutate(day = gsub("swab", "", day)) |>
+  ggplot(
+    aes(day, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 0.6)) +
+  geom_line( position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) + 
+ # geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  scale_fill_manual(values = rev(c("red", "blue"))) + 
+  scale_color_manual(values = rev((c("red", "blue")))) + 
+  labs(title = "Proportion of swabs positive") +
+  facet_grid(sample ~ hospital) +
+  theme(legend.position = "bottom")
+
+b <-
+df |>
+  separate_longer_delim(species, delim = ";") |>
+  filter(!is.na(species), !grepl("SAMPLE|ABSENT|REJ", species)) |>
+  mutate(species = gsub(",", "", species)) |>
+  mutate(species = if_else(grepl("Coli|coli", species), "E. coli", species)) |>
+  ggplot(aes(fct_infreq(species))) +
+  geom_bar() +
+  facet_grid(sample ~ plate, scales = "free_x") +
+  coord_flip() +
+  labs(x = "Species", title = "Number of isolates")
+
+c + a
+
+```
+
+## Staff sample species
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+
+b
+```
+
+# Community
+
+## Community swab results
+
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+
+
+df <-
+read_csv(here("data/processed/cleaned_community_cultures.csv"))
+
+c <-
+df |>
+  select(hospital,  pid) |>
+  unique() |>
+  ggplot(aes(hospital)) +
+  geom_bar() +
+  labs(title = "Number of samples")
+  
+a <-
+df |>
+  select(hospital, pid, plate, growth) |>
+  group_by(hospital, plate) |>
+  summarise(
+     n = sum(growth),
+     N = length(growth)
+) |>
+rowwise() |>
+mutate(prop = n/N,
+       lci = binom.test(n,N)$conf.int[1],
+       uci = binom.test(n,N)$conf.int[2]
+) |>
+  ggplot(
+    aes(hospital, prop, ymin = lci, ymax = uci, group = plate, color = plate, fill =
+plate)) + 
+  geom_point(position = position_dodge(width = 0.6)) +
+ # geom_line( position = position_dodge(width = 0.6)) +
+  geom_errorbar(width = 0, position = position_dodge(width = 0.6)) + 
+ # geom_ribbon( position = position_dodge(width = 1), alpha = 0.3, color = NA) + 
+  scale_fill_manual(values = rev(c("red", "blue"))) + 
+  scale_color_manual(values = rev((c("red", "blue")))) + 
+  labs(title = "Proportion of swabs positive")
+
+b <-
+df |>
+  separate_longer_delim(species, delim = ";") |>
+  filter(!is.na(species), !grepl("SAMPLE|ABSENT|REJ", species)) |>
+  mutate(species = gsub(",", "", species)) |>
+  mutate(species = if_else(grepl("Coli|coli", species), "E. coli", species)) |>
+  ggplot(aes(fct_infreq(species))) +
+  geom_bar() +
+  facet_wrap(~ plate, scales = "free_x") +
+  coord_flip() +
+  labs(x = "Species", title = "Number of isolates")
+
+c + a
+
+```
+
+## Community species
+
+
+```{r}
+#| fig-width: 5
+#| fig-height: 3
+
+b
+
+```
+
+## Conclusions
+
+- High prevalence of ESBL colonsiation in community (86%) and in hospital.
+- Low prevalance of CRO colonisation in community (6%).
+- Increasing prevalence of CRO-colonisation in inpatients with time, mostly Acinetobacter.
+- Widespread contamination of staff and environment with CRO resistant
+organisms, most commonly Acinetobacter.
+
+## Hypothesis - and intervention?
+
+- Transmission of CRO-organmisms to patients occurs from staff and environment
+- This can be interrupted with improved IPC 
+
+## Further questions
+
+- **What are drivers of differences in CRO prevalence between sites?**
+  - Low CRO prevalence in Ashari ICU compared to Kariadi and Wongsonegoro; why?
+    - Length of stay on ICU?
+  - Higher CRO prevalence on ward at Kariadi compared to Wongsonegoro and
+Ashari; why?
+- **Role of antibiotics in driving increase in CROs**- needs addition of REDcap
+data.
+- Lots of **questions for genomics:**
+  - Link environmental, staff, and patient isolates to infer transmission - does
+this support hypothesis of transmission?
+  - Are the same strains circulating in wrad environent causing invasive disease?
+  - Are the same strains circulating in community and hospital?
+
+# Next steps?
