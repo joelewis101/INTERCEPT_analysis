@@ -2,3 +2,5 @@ data/raw/
 data/processed/
 *.pdf
 .DS_Store
+*otter*
+*.docx
